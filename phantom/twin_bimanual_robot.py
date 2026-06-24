@@ -8,14 +8,10 @@ provides observation data including RGB images, depth maps, and robot masks.
 """
 
 from collections import deque
-import re
-import cv2
-import pdb
-import matplotlib.pyplot as plt
 import numpy as np 
 from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
-from typing import Tuple, Union, Any
+from typing import Any, Optional, Tuple, Union
 
 from robosuite.controllers import load_controller_config # type: ignore
 from robosuite.utils.camera_utils import get_real_depth_map # type: ignore
@@ -88,10 +84,22 @@ class TwinBimanualRobot:
     - Observation history management
     """
     
-    def __init__(self, robot_name: str, gripper_name: str, bimanual_setup: str,
-                 camera_params: MujocoCameraParams, camera_height: int, camera_width: int,
-                 render: bool, n_steps_short: int, n_steps_long: int, square: bool = False,
-                 debug_cameras: list[str] = [], epic: bool = False, joint_controller: bool = False): 
+    def __init__(
+        self,
+        robot_name: str,
+        gripper_name: str,
+        bimanual_setup: str,
+        camera_params: MujocoCameraParams,
+        camera_height: int,
+        camera_width: int,
+        render: bool,
+        n_steps_short: int,
+        n_steps_long: int,
+        square: bool = False,
+        debug_cameras: Optional[list[str]] = None,
+        epic: bool = False,
+        joint_controller: bool = False,
+    ):
         """
         Initialize the bimanual robot twin.
         
@@ -143,7 +151,10 @@ class TwinBimanualRobot:
         options["bimanual_setup"] = bimanual_setup
         options["robots"] = [self.robot_name, self.robot_name]  # Two identical robots
         if self.robot_name == "Kinova3":
-            options["gripper_types"] = [f"{self.gripper_name}GripperRealKinova", f"{self.gripper_name}GripperRealKinova"]
+            options["gripper_types"] = [
+                f"{self.gripper_name}GripperRealKinova",
+                f"{self.gripper_name}GripperRealKinova",
+            ]
         else:
             options["gripper_types"] = [f"{self.gripper_name}Gripper", f"{self.gripper_name}Gripper"]
         
@@ -178,8 +189,14 @@ class TwinBimanualRobot:
         if self.epic:
             self.base_T_1 = BASE_T_1
             # Transform camera position and orientation to Epic Kitchen frame
-            self.camera_params.pos = self.base_T_1[:3, :3] @ self.camera_params.pos + self.base_T_1[:3, 3]
-            camera_ori_matrix = self.base_T_1[:3, :3] @ Rotation.from_quat(self.camera_params.ori_wxyz, scalar_first=True).as_matrix()
+            self.camera_params.pos = (
+                self.base_T_1[:3, :3] @ self.camera_params.pos
+                + self.base_T_1[:3, 3]
+            )
+            camera_ori_matrix = (
+                self.base_T_1[:3, :3]
+                @ Rotation.from_quat(self.camera_params.ori_wxyz, scalar_first=True).as_matrix()
+            )
             self.camera_params.ori_wxyz = Rotation.from_matrix(camera_ori_matrix).as_quat(scalar_first=True)
 
         # Set camera parameters
@@ -243,7 +260,9 @@ class TwinBimanualRobot:
         if self.epic:
             # Transform position and orientation to Epic Kitchen coordinate frame
             ee_pos = self.base_T_1[:3, 3] + self.base_T_1[:3, :3] @ ee_pos
-            axis_angle = Rotation.from_matrix(self.base_T_1[:3, :3] @ Rotation.from_quat(ee_quat_xyzw).as_matrix()).as_rotvec()
+            axis_angle = Rotation.from_matrix(
+                self.base_T_1[:3, :3] @ Rotation.from_quat(ee_quat_xyzw).as_matrix()
+            ).as_rotvec()
         elif not self.epic:
             # Apply 135-degree Z rotation for standard setup
             rot = Rotation.from_quat(ee_quat_xyzw)
@@ -298,7 +317,11 @@ class TwinBimanualRobot:
             self.obs_history.append(self.move_to_target_state(state))
         return list(self.obs_history)
     
-    def move_to_target_state(self, state: dict, init=False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def move_to_target_state(
+        self,
+        state: dict,
+        init=False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Move robot to target state and collect observation data.
         
@@ -345,6 +368,10 @@ class TwinBimanualRobot:
         # Extract observation data from simulation
         robot_mask = np.squeeze(self.get_robot_mask(obs))
         gripper_mask = np.squeeze(self.get_gripper_mask(obs))
+        right_gripper_mask = np.squeeze(self.get_instance_mask(obs, [3]))
+        left_gripper_mask = np.squeeze(self.get_instance_mask(obs, [6]))
+        right_robot_mask = np.squeeze(self.get_instance_mask(obs, [1, 3]))
+        left_robot_mask = np.squeeze(self.get_instance_mask(obs, [4, 6]))
         rgb_img = self.get_image(obs)
         depth_img = self.get_depth_image(obs)
         robot_pos = obs["robot0_eef_pos"] - self.robot_base_pos
@@ -356,18 +383,34 @@ class TwinBimanualRobot:
             left_pos_error = np.linalg.norm(obs['robot1_eef_pos']-self.robot_base_pos - state["pos"][1])
         else:
             # Epic Kitchen coordinate frame
-            right_pos_error = np.linalg.norm(obs['robot0_eef_pos']-self.base_T_1[:3, 3] - self.base_T_1[:3, :3] @ state["pos"][0])
-            left_pos_error = np.linalg.norm(obs['robot1_eef_pos']-self.base_T_1[:3, 3] - self.base_T_1[:3, :3] @ state["pos"][1])
+            right_pos_error = np.linalg.norm(
+                obs['robot0_eef_pos']
+                - self.base_T_1[:3, 3]
+                - self.base_T_1[:3, :3] @ state["pos"][0]
+            )
+            left_pos_error = np.linalg.norm(
+                obs['robot1_eef_pos']
+                - self.base_T_1[:3, 3]
+                - self.base_T_1[:3, :3] @ state["pos"][1]
+            )
 
         # Compile output dictionary
+        right_eef_ori = self._get_body_rotation("gripper0_eef")
+        left_eef_ori = self._get_body_rotation("gripper1_eef")
         output = {
             "robot_mask": robot_mask,
             "gripper_mask": gripper_mask,
+            "right_gripper_mask": right_gripper_mask,
+            "left_gripper_mask": left_gripper_mask,
+            "right_robot_mask": right_robot_mask,
+            "left_robot_mask": left_robot_mask,
             "rgb_img": rgb_img,
             "depth_img": depth_img,
             "robot_pos": robot_pos,
             "left_pos_err": left_pos_error,
             "right_pos_err": right_pos_error,
+            "right_eef_ori": right_eef_ori,
+            "left_eef_ori": left_eef_ori,
         }
 
         # Add debug camera images if specified
@@ -377,6 +420,17 @@ class TwinBimanualRobot:
 
         return output
  
+    def get_instance_mask(self, obs: dict, instance_ids: list[int]) -> np.ndarray:
+        seg_img = self.get_seg_image(obs)
+        mask = np.zeros_like(seg_img)
+        for instance_id in instance_ids:
+            mask[seg_img == instance_id] = 1
+        return mask
+
+    def _get_body_rotation(self, body_name: str) -> np.ndarray:
+        sim = self.env.env.sim
+        return sim.data.get_body_xmat(body_name).reshape(3, 3).copy()
+
     def _convert_handgripper_pos_to_action(self, gripper_pos: float) -> np.ndarray:
         """
         Convert hand gripper position to robot gripper action.
@@ -388,7 +442,7 @@ class TwinBimanualRobot:
             gripper_pos: Gripper opening distance in meters
             
         Returns:
-            Robot gripper action value (0-255 for Robotiq85)
+            Robot gripper actuator command for direct gripper control.
             
         Raises:
             ValueError: If gripper type is not supported
@@ -397,9 +451,21 @@ class TwinBimanualRobot:
             # Robotiq85 gripper specifications
             min_gripper_pos, max_gripper_pos = 0.0, 0.085  # 0 to 8.5cm opening
             gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
-            open_gripper_action, closed_gripper_action = 0, 255  # 0=open, 255=closed
-            # Linear interpolation between open and closed states
-            return np.interp(gripper_pos, [min_gripper_pos, max_gripper_pos], [closed_gripper_action, open_gripper_action])
+            open_gripper_action, closed_gripper_action = 0.0, 255.0
+            return np.interp(
+                gripper_pos,
+                [min_gripper_pos, max_gripper_pos],
+                [closed_gripper_action, open_gripper_action],
+            )
+        elif self.gripper_name == "Robotiq140":
+            min_gripper_pos, max_gripper_pos = 0.0, 0.14
+            gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
+            open_gripper_action, closed_gripper_action = 0.0, 0.7
+            return np.interp(
+                gripper_pos,
+                [min_gripper_pos, max_gripper_pos],
+                [closed_gripper_action, open_gripper_action],
+            )
         else:
             raise ValueError(f"Gripper name {self.gripper_name} not supported")
 
@@ -444,7 +510,12 @@ class TwinBimanualRobot:
             # Combine joint positions and gripper actions
             action_0 = q0_new
             action_1 = q1_new
-            action = np.concatenate([action_0, np.array(gripper_action[0]).reshape(1,), action_1, np.array(gripper_action[1]).reshape(1,)])
+            action = np.concatenate([
+                action_0,
+                np.array(gripper_action[0]).reshape(1,),
+                action_1,
+                np.array(gripper_action[1]).reshape(1,),
+            ])
 
         # Execute action for specified number of steps
         for _ in range(n_steps):

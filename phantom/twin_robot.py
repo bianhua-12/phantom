@@ -8,11 +8,10 @@ observation data including RGB images, depth maps, and robot masks.
 """
 
 from collections import deque
-import cv2
 import numpy as np 
 from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
-from typing import Tuple, Union, Any
+from typing import Any, Optional, Tuple, Union
 
 from robosuite.controllers import load_controller_config # type: ignore
 from robosuite.utils.camera_utils import get_real_depth_map # type: ignore
@@ -83,9 +82,19 @@ class TwinRobot:
     # Robot configuration constants
     DEFAULT_ROBOT_BASE_POS = np.array([-0.56, 0, 0.912])
     
-    def __init__(self, robot_name: str, gripper_name: str, camera_params: MujocoCameraParams, camera_height: int, camera_width: int,
-                 render: bool, n_steps_short: int, n_steps_long: int, debug_cameras: list[str] = [], 
-                 square: bool = False): 
+    def __init__(
+        self,
+        robot_name: str,
+        gripper_name: str,
+        camera_params: MujocoCameraParams,
+        camera_height: int,
+        camera_width: int,
+        render: bool,
+        n_steps_short: int,
+        n_steps_long: int,
+        debug_cameras: Optional[list[str]] = None,
+        square: bool = False,
+    ):
         """
         Initialize the single-arm robot twin.
         
@@ -321,7 +330,7 @@ class TwinRobot:
             gripper_pos: Gripper opening distance in meters
             
         Returns:
-            Robot gripper action value (0-255 for Robotiq85)
+            Robot gripper actuator command for direct gripper control.
             
         Raises:
             ValueError: If gripper type is not supported
@@ -330,9 +339,21 @@ class TwinRobot:
             # Robotiq85 gripper specifications
             min_gripper_pos, max_gripper_pos = 0.0, 0.085  # 0 to 8.5cm opening
             gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
-            open_gripper_action, closed_gripper_action = 0, 255  # 0=open, 255=closed
-            # Linear interpolation between open and closed states
-            return np.interp(gripper_pos, [min_gripper_pos, max_gripper_pos], [closed_gripper_action, open_gripper_action])
+            open_gripper_action, closed_gripper_action = 0.0, 255.0
+            return np.interp(
+                gripper_pos,
+                [min_gripper_pos, max_gripper_pos],
+                [closed_gripper_action, open_gripper_action],
+            )
+        elif self.gripper_name == "Robotiq140":
+            min_gripper_pos, max_gripper_pos = 0.0, 0.14
+            gripper_pos = np.clip(gripper_pos, min_gripper_pos, max_gripper_pos)
+            open_gripper_action, closed_gripper_action = 0.0, 0.7
+            return np.interp(
+                gripper_pos,
+                [min_gripper_pos, max_gripper_pos],
+                [closed_gripper_action, open_gripper_action],
+            )
         else:
             raise ValueError(f"Gripper name {self.gripper_name} not supported")
 

@@ -68,7 +68,10 @@ class HandInpaintProcessor(BaseProcessor):
 
         # Initialize and load the inpainting model
         self.model = InpaintGenerator().to(self.device)
-        data = torch.load(checkpoint_path, map_location=self.device)
+        try:
+            data = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        except TypeError:
+            data = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(data)
         self.model.eval()
 
@@ -482,4 +485,3 @@ class HandInpaintProcessor(BaseProcessor):
         # Apply reflection padding to avoid boundary artifacts
         img_tensor = torch.cat([img_tensor, torch.flip(img_tensor, [3])], 3)[:, :, :, :h + h_pad, :]
         return torch.cat([img_tensor, torch.flip(img_tensor, [4])], 4)[:, :, :, :, :w + w_pad]
-

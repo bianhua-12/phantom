@@ -1,3 +1,67 @@
+# Qwen RobotManip Reproduction Workspace
+
+This fork is currently used as a working repository for reproducing the
+Qwen RobotManip visual-alignment pipeline on EgoDex / Phantom-style human
+videos. The upstream Phantom and Masquerade code is the visual-alignment
+baseline and should be the first path used for single-demo validation. The
+direct ALOHA/world-base renderer under `phantom/qwenrobot/search_base.py` and
+`phantom/qwenrobot/render_robot.py` is a diagnostic experiment only; it is not
+equivalent to MarionLepert/phantom's robot overlay pipeline and should not be
+treated as the mainline until its base/root/camera chain is fixed.
+
+```bash
+cd /mnt/project_rlinf/jlchen/code/phantom_reference
+PYTHONPATH=/mnt/project_rlinf/jlchen/code/phantom_reference \
+CUDA_VISIBLE_DEVICES=0 \
+MUJOCO_GL=egl \
+/mnt/project_rlinf/jlchen/envs/qwen_visual_align/bin/python \
+  -m phantom.qwenrobot.prepare_egodex_for_phantom \
+  --retarget qwen \
+  --middle-state-raw-depth-overlay \
+  --overwrite
+```
+
+This middle-state command keeps the original human hands in the RGB video,
+generates DepthAnything3 scene depth from the raw frames, runs the
+Phantom-compatible shoulders base search, and writes the depth-aware robot
+overlay separately as
+`video_overlay_Kinova3_shoulders_rawhand_depth.mkv`. It intentionally does not
+run ProPainter/E2FGVI hand removal.
+
+```bash
+python -m phantom.qwenrobot.prepare_egodex_for_phantom \
+  --retarget qwen \
+  --raw-hand-overlay-preview \
+  --overwrite
+```
+
+There are three important paths in this repository:
+
+- **Original Phantom/Masquerade baseline**: original processors and fixed
+  `Kinova3 + Robotiq85` shoulders setup. This is the reproducibility control.
+- **Phantom shoulders Qwen adapter**: converts EgoDex/Qwen-style retargeted
+  actions into the original Phantom `action_processor` / `smoothing_processor`
+  file layout, then runs the original `RobotInpaintProcessor` and
+  `TwinBimanualRobot` camera / segmentation / overlay stack.
+- **Direct ALOHA/world-base diagnostics**: explicit `base_xyz_yaw` search,
+  MuJoCo IK feasibility, and direct renderer probes in `phantom/qwenrobot/`.
+  This path is useful for diagnosing camera/base mistakes, but the current
+  single-demo failure is a root/body composition failure despite good IK.
+
+Current status and artifact guidance:
+
+- `docs/qwen_robotmanip_status.md`: latest engineering status, known failures,
+  and next steps.
+- `docs/qwen_robotmanip_artifacts.md`: minimum artifact index and cleanup
+  guidance for existing `outputs/`.
+- `phantom/qwenrobot/PHANTOM_EGODEX_BASELINE_REPORT.md` and
+  `phantom/egodex_original/IMPLEMENTATION_REPORT.md`: historical baseline
+  reports. Their recommendation to keep the upstream Phantom overlay path as
+  the control is still the correct first step.
+
+No Python API, CLI schema, action file format, or training-data format is
+changed by this documentation pass.
+
 # Code for Phantom and Masquerade
 [![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

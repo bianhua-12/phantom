@@ -7,26 +7,43 @@ from pathlib import Path
 from typing import Tuple
 import cv2
 import logging
-import mediapy as media
 import requests
 import hamer  # type: ignore
 from hamer.utils.utils_detectron2 import DefaultPredictor_Lazy  # type: ignore
 from detectron2.config import LazyConfig  # type: ignore
 
 logger = logging.getLogger(__name__)
+DETECTRON_CKPT_URL = (
+    "https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/"
+    "cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl"
+)
+DETECTRON_CKPT_SIZE = 2765948277
+DOWNLOAD_CHUNK_SIZE = 8192
+DOWNLOAD_TIMEOUT = (10, 60)
+
 
 def download_detectron_ckpt(root_dir: str, ckpt_path: str) -> None:
-    url = "https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl"
     save_path = Path(root_dir, ckpt_path)
     save_path.parent.mkdir(exist_ok=True, parents=True)
-    response = requests.get(url, stream=True)
-    if response.status_code == 200:
-        with open(save_path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
+    tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+    try:
+        response = requests.get(DETECTRON_CKPT_URL, stream=True, timeout=DOWNLOAD_TIMEOUT)
+        response.raise_for_status()
+        with open(tmp_path, "wb") as file:
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                if chunk:
+                    file.write(chunk)
+        actual_size = tmp_path.stat().st_size
+        if actual_size != DETECTRON_CKPT_SIZE:
+            raise RuntimeError(
+                f"Incomplete Detectron2 checkpoint download: got {actual_size} bytes, "
+                f"expected {DETECTRON_CKPT_SIZE}"
+            )
+        tmp_path.replace(save_path)
         logger.info(f"File downloaded successfully and saved to {save_path}")
-    else:
-        logger.info(f"Failed to download the file. Status code: {response.status_code}")
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 class DetectorDetectron2:
@@ -37,7 +54,10 @@ class DetectorDetectron2:
         detectron2_cfg.train.init_checkpoint = os.path.join(
             root_dir, "_DATA/detectron_ckpts/model_final_f05665.pkl"
         )
-        if not os.path.exists(detectron2_cfg.train.init_checkpoint):
+        if (
+            not os.path.exists(detectron2_cfg.train.init_checkpoint)
+            or os.path.getsize(detectron2_cfg.train.init_checkpoint) != DETECTRON_CKPT_SIZE
+        ):
             download_detectron_ckpt(
                 root_dir, "_DATA/detectron_ckpts/model_final_f05665.pkl"
             )

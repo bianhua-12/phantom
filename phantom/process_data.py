@@ -44,6 +44,12 @@ PROCESSING_ORDER_EPIC = [
     "robot_inpaint",
 ]
 
+
+def handle_processor_error(cfg: DictConfig, mode: str, data_sub_folder: str, error: Exception) -> None:
+    logging.exception("Error in %s processing for demo %s", mode, data_sub_folder)
+    if not cfg.continue_on_error:
+        raise error
+
 def process_one_demo(data_sub_folder: str, cfg: DictConfig, processor_classes: dict) -> None:
     # Choose processing order based on epic flag
     processing_order = PROCESSING_ORDER_EPIC if cfg.epic else PROCESSING_ORDER
@@ -77,9 +83,7 @@ def process_one_demo(data_sub_folder: str, cfg: DictConfig, processor_classes: d
         try:
             processor.process_one_demo(data_sub_folder)
         except Exception as e:
-            print(f"Error in {mode} processing: {e}")
-            if cfg.debug:
-                raise
+            handle_processor_error(cfg, mode, data_sub_folder, e)
 
 def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
     # Choose processing order based on epic flag
@@ -117,9 +121,7 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             try:
                 processor.process_one_demo(data_sub_folder)
             except Exception as e:
-                print(f"Error in {mode} processing: {e}")
-                if cfg.debug:
-                    raise
+                handle_processor_error(cfg, mode, data_sub_folder, e)
 
 def process_all_demos_parallel(cfg: DictConfig, processor_classes: dict) -> None:
     # Choose processing order based on epic flag

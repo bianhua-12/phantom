@@ -49,8 +49,11 @@ class BaseProcessor:
         self.target_hand = cfg.target_hand
         self.constrained_hand = cfg.constrained_hand
         self.depth_for_overlay = cfg.depth_for_overlay
+        self.depth_occlusion_margin = float(cfg.depth_occlusion_margin)
+        self.scene_depth_scale = float(cfg.scene_depth_scale)
+        self.scene_depth_offset = float(cfg.scene_depth_offset)
         self.render = cfg.render
-        self.debug_cameras = getattr(cfg, 'debug_cameras', [])
+        self.debug_cameras = list(cfg.debug_cameras)
         
         # Apply bimanual setup logic
         if self.bimanual_setup != "single_arm":

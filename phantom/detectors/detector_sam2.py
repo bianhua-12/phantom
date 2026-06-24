@@ -2,49 +2,62 @@
 Wrapper around SAM2 for object segmentation
 """
 import numpy as np
-import pdb
 import os 
 import logging
 import requests
-from typing import Tuple, Optional
+from typing import Optional
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 import cv2
 from PIL import Image
 import torch
-from sam2.build_sam import build_sam2  # type: ignore
-from sam2.sam2_image_predictor import SAM2ImagePredictor  # type: ignore
 from sam2.build_sam import build_sam2_video_predictor  # type: ignore
 
 logger = logging.getLogger(__name__)
+SAM2_CKPT_URL = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt"
+SAM2_CKPT_SIZE = 897952466
+DOWNLOAD_CHUNK_SIZE = 8192
+DOWNLOAD_TIMEOUT = (10, 60)
+
 
 def download_sam2_ckpt(ckpt_path: str) -> None:
-    url = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt"
     save_path = Path(ckpt_path)
     save_path.parent.mkdir(exist_ok=True, parents=True)
-    response = requests.get(url, stream=True)
-    if response.status_code == 200:
-        with open(save_path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
+    tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+    try:
+        response = requests.get(SAM2_CKPT_URL, stream=True, timeout=DOWNLOAD_TIMEOUT)
+        response.raise_for_status()
+        with open(tmp_path, "wb") as file:
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                if chunk:
+                    file.write(chunk)
+        actual_size = tmp_path.stat().st_size
+        if actual_size != SAM2_CKPT_SIZE:
+            raise RuntimeError(
+                f"Incomplete SAM2 checkpoint download: got {actual_size} bytes, "
+                f"expected {SAM2_CKPT_SIZE}"
+            )
+        tmp_path.replace(save_path)
         logger.info(f"File downloaded successfully and saved to {save_path}")
-    else:
-        logger.info(f"Failed to download the file. Status code: {response.status_code}")
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 class DetectorSam2:
     """
     A detector that uses the SAM2 model for object segmentation in images and videos.
     """
     def __init__(self):
-        checkpoint = "../submodules/sam2/checkpoints/sam2_hiera_large.pt"
+        repo_root = Path(__file__).resolve().parents[2]
+        checkpoint = repo_root / "submodules" / "sam2" / "checkpoints" / "sam2_hiera_large.pt"
         model_cfg = "sam2_hiera_l.yaml"
         
-        if not os.path.exists(checkpoint):
-            download_sam2_ckpt(checkpoint)
+        if not checkpoint.exists() or checkpoint.stat().st_size != SAM2_CKPT_SIZE:
+            download_sam2_ckpt(str(checkpoint))
         self.device = "cuda"
         
-        self.video_predictor = build_sam2_video_predictor(model_cfg, checkpoint, device=self.device)
+        self.video_predictor = build_sam2_video_predictor(model_cfg, str(checkpoint), device=self.device)
     
     def segment_video(self, video_dir: Path, bbox: np.ndarray, points: np.ndarray, 
                       indices: int, reverse: bool=False, output_bboxes: Optional[np.ndarray]=None):
@@ -87,8 +100,9 @@ class DetectorSam2:
                             labels=np.ones(len(point)),
                         )
                 except Exception as e:
-                    print("Error in adding new points or box:", e)
-                    pdb.set_trace()
+                    raise RuntimeError(
+                        f"Failed to add SAM2 prompt at frame {idx}"
+                    ) from e
  
             video_segments = {}
             for (
@@ -201,13 +215,20 @@ class DetectorSam2:
             contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE) 
             # Try to smooth contours
             contours = [cv2.approxPolyDP(contour, epsilon=0.01, closed=True) for contour in contours]
-            mask_image = cv2.drawContours(mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2) 
+            mask_image = cv2.drawContours(mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2)
         ax.imshow(mask_image)
 
 
     @staticmethod
-    def show_masks(image: np.ndarray, masks: np.ndarray, scores: np.ndarray, point_coords: Optional[np.ndarray]=None, 
-                   box_coords: Optional[np.ndarray]=None, input_labels: Optional[np.ndarray]=None, borders: bool=True) -> None:
+    def show_masks(
+        image: np.ndarray,
+        masks: np.ndarray,
+        scores: np.ndarray,
+        point_coords: Optional[np.ndarray] = None,
+        box_coords: Optional[np.ndarray] = None,
+        input_labels: Optional[np.ndarray] = None,
+        borders: bool = True,
+    ) -> None:
         n_masks = len(masks)
         fig, axs = plt.subplots(1, n_masks, figsize=(10*n_masks, 10))
         for i, (mask, score) in enumerate(zip(masks, scores)):

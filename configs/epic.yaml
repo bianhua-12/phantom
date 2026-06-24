@@ -2,6 +2,7 @@
 debug: false
 verbose: false
 skip_existing: false
+continue_on_error: false
 n_processes: 1
 data_root_dir: "../data/raw_data/"
 processed_data_root_dir: "../data/processed_data/"
@@ -26,6 +27,9 @@ bimanual_setup: "shoulders"
 target_hand: "both"
 constrained_hand: false
 depth_for_overlay: false
+depth_occlusion_margin: 0.03
+scene_depth_scale: 1.0
+scene_depth_offset: 0.0
 render: false
 camera_intrinsics: "camera/camera_intrinsics_epic.json"
 camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders.json"

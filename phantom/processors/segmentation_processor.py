@@ -22,6 +22,7 @@ from tqdm import tqdm
 import numpy as np
 import mediapy as media
 import argparse
+from pathlib import Path
 from typing import Dict, Tuple, Optional, List
 
 from phantom.processors.paths import Paths
@@ -213,8 +214,8 @@ class ArmSegmentationProcessor(BaseSegmentationProcessor):
         super().__init__(args)
 
         # Initialize Detectron2 for initial hand/arm detection
-        root_dir = "../submodules/phantom-hamer/"
-        self.detectron_detector = DetectorDetectron2(root_dir)
+        root_dir = Path(self.project_folder) / "submodules" / "phantom-hamer"
+        self.detectron_detector = DetectorDetectron2(str(root_dir))
 
 
     def process_one_demo(self, data_sub_folder: str, hamer_data: Optional[Dict[str, HandSequence]] = None) -> None:
@@ -1053,4 +1054,3 @@ class HandSegmentationProcessor(BaseSegmentationProcessor):
             shutil.rmtree(paths.original_images_folder)
         if os.path.exists(paths.original_images_folder_reverse):
             shutil.rmtree(paths.original_images_folder_reverse)
-
